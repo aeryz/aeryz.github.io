@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Introduction
+title: 1. Introduction
 parent: OS Dev Journey
 nav_order: 4
 ---
