@@ -6,7 +6,7 @@
 .long -(0x1BADB002 + 0)  # 5
 </code></pre></div></div> <ol> <li>The multiboot header should be 32-bit (4 byte) aligned. So we aligned the section by using <code class="language-plaintext highlighter-rouge">.align</code> <a href="https://ftp.gnu.org/old-gnu/Manuals/gas-2.9.1/html_chapter/as_7.html">directive</a></li> <li>We name this section as <code class="language-plaintext highlighter-rouge">.multiboot</code> and will be using this name later on to make sure that our header is 4-byte aligned and loaded very early in the executable file.</li> <li>Magic number that indicates multiboot 1.</li> <li>We don’t have any flags set. So we put 0.</li> <li>We put the checksum value. It should give 0, when added to the other magic fields.</li> </ol> <p>To be able to assemble <code class="language-plaintext highlighter-rouge">boot.s</code> for our bare bones x86 target, we need to use a cross-platform toolchain. We don’t want anything that depends on our host ecosystem. We can achieve this by using <code class="language-plaintext highlighter-rouge">binutils</code>.</p> <p>Let’s assemble <code class="language-plaintext highlighter-rouge">boot.s</code> and validate our multiboot header.</p> <div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>i386-elf-as <span class="nt">-msyntax</span><span class="o">=</span>intel <span class="nt">-mmnemonic</span><span class="o">=</span>intel boot.s <span class="nt">-o</span> boot.o
 </code></pre></div></div> <p>As you can guess, <code class="language-plaintext highlighter-rouge">-msyntax</code> and <code class="language-plaintext highlighter-rouge">-mmnemonic</code> arguments are used for intel syntax.</p> <p>Validate the header:</p> <div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>grub-file <span class="nt">--is-x86-multiboot</span> boot.o <span class="o">||</span> <span class="nb">echo</span> <span class="s2">":("</span>
-</code></pre></div></div> <p>If the command does not give us a sad face, then we are good to go.</p> <h2 id="running-some-code"> <a href="#running-some-code" class="anchor-heading" aria-labelledby="running-some-code"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Running some code </h2> <p>The boot loader will jump to the <code class="language-plaintext highlighter-rouge">_start</code> symbol. If we don’t define the <code class="language-plaintext highlighter-rouge">_start</code> symbol, the linker will provide it with a predefined location. Our super simple kernel would probably work if we won’t define the <code class="language-plaintext highlighter-rouge">_start</code> symbol. I will demonstrate what I mean later.</p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">.section</span> <span class="nv">.text</span> <span class="err">#</span><span class="mi">1</span>
+</code></pre></div></div> <p>If the command does not give us a sad face, then we are good to go.</p> <h2 id="writing-some-code"> <a href="#writing-some-code" class="anchor-heading" aria-labelledby="writing-some-code"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Writing some code </h2> <p>The boot loader will jump to the <code class="language-plaintext highlighter-rouge">_start</code> symbol. If we don’t define the <code class="language-plaintext highlighter-rouge">_start</code> symbol, the linker will provide it with a predefined location. Our super simple kernel would probably work if we won’t define the <code class="language-plaintext highlighter-rouge">_start</code> symbol. I will demonstrate what I mean later.</p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">.section</span> <span class="nv">.text</span> <span class="err">#</span><span class="mi">1</span>
 <span class="nf">.global</span> <span class="nv">_start</span> <span class="err">#</span><span class="mi">2</span>
 <span class="nl">_start:</span> 
 </code></pre></div></div> <ol> <li>Executable part of the binary goes into <code class="language-plaintext highlighter-rouge">.text</code> section.</li> <li>We make <code class="language-plaintext highlighter-rouge">_start</code> symbol accessible from outside of the file.</li> </ol> <p>Let’s print a very simple <code class="language-plaintext highlighter-rouge">Hi</code> message to see if everything works fine. Since we don’t have any underlying OS (basically we are the OS), we don’t have anything like <code class="language-plaintext highlighter-rouge">printf</code> or <code class="language-plaintext highlighter-rouge">write</code> system call. Because the system calls are provided by the operating system. We need to implement such things ourselves in this wild, bare bones environment.</p> <p>We will use the <a href="https://en.wikipedia.org/wiki/VGA_text_mode">VGA text mode</a> to print to screen. The one we will be using in <code class="language-plaintext highlighter-rouge">qemu</code> provides a <code class="language-plaintext highlighter-rouge">80x25 16-bit</code> buffer located at physical memory address <code class="language-plaintext highlighter-rouge">0xB8000</code>. Layout of a character is like this:</p> <div class="table-wrapper"><table> <thead> <tr> <th>Bits</th> <th>Description</th> </tr> </thead> <tbody> <tr> <td>0-7</td> <td>Code point</td> </tr> <tr> <td>8-11</td> <td>Foreground color</td> </tr> <tr> <td>12-15</td> <td>Background color</td> </tr> </tbody> </table></div> <p>You can also check out the 4-bit color palette <a href="https://www.fountainware.com/EXPL/vga_color_palettes.htm">here</a>.</p> <p>To print a white-on-black <code class="language-plaintext highlighter-rouge">HI</code> message, we need to do a small math.</p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">.section</span> <span class="nv">.text</span>
@@ -16,4 +16,203 @@
     <span class="nf">mov</span> <span class="kt">word</span> <span class="nv">ptr</span> <span class="p">[</span><span class="mh">0xb8000</span> <span class="o">+</span> <span class="mh">0x2</span><span class="p">],</span> <span class="s">'i'</span> <span class="o">|</span> <span class="p">(</span><span class="mh">0xF</span> <span class="o">&lt;&lt;</span> <span class="mi">8</span><span class="p">)</span>
     
     <span class="nf">hlt</span>
-</code></pre></div></div> <p>We basically left-shift the foreground color (WHITE) by 8 bits and OR it with <code class="language-plaintext highlighter-rouge">h</code> and <code class="language-plaintext highlighter-rouge">i</code> to get white-on-black characters and put it to physical address <code class="language-plaintext highlighter-rouge">0xb8000</code> which is the address of the VGA buffer.</p> </div> </div> <div class="search-overlay"></div> </div> </body> </html>
+</code></pre></div></div> <p>We basically left-shift the foreground color (WHITE) by 8 bits and OR it with <code class="language-plaintext highlighter-rouge">h</code> and <code class="language-plaintext highlighter-rouge">i</code> to get white-on-black characters and put it to physical address <code class="language-plaintext highlighter-rouge">0xb8000</code> which is the address of the VGA buffer.</p> <h2 id="running-the-code"> <a href="#running-the-code" class="anchor-heading" aria-labelledby="running-the-code"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Running the code </h2> <p>We will be using <a href="https://www.qemu.org">qemu</a> to run our kernel. To generate a bootable kernel, we again need to use the cross-platform linker. But we cannot use the linker like that because we also need to tell the linker how to construct the executable file.</p> <p>Let’s think about our needs for a second:</p> <ol> <li>Our entry point’s name is <code class="language-plaintext highlighter-rouge">_start</code></li> <li>Multiboot header should be 4-byte aligned.</li> <li>Multiboot header should be within first 8192 bytes of the OS image. (We can just put it to top)</li> <li>Any OS data should not collide with any special locations. (Like VGA buffer in <code class="language-plaintext highlighter-rouge">0xb8000</code>)</li> </ol> <p><em>DIY: Try to write your own linker script by considering the requirements above.</em></p> <p>If you didn’t write your own linker script, it is fine :) Here is a very minimalistic linker script (linker.ld):</p> <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ENTRY(_start) /* 1 */
+
+SECTIONS  
+{
+    . = 1M; /* 2 */
+
+    /* 3 */
+    .multiboot : ALIGN(4) {
+        *(.multiboot)
+    }
+
+    /* 4 */
+    .text : {
+        *(.text)
+    }
+}
+</code></pre></div></div> <ol> <li>We defined <code class="language-plaintext highlighter-rouge">_start</code> as the entry point.</li> <li>We make the kernel code start from 1 MB, it is a convential location to put the kernel code. Also, this way our kernel code won’t collide with the VGA buffer.</li> <li>We put the <code class="language-plaintext highlighter-rouge">.multiboot</code> section to top and align it to 4 bytes.</li> <li>We put the actual code.</li> </ol> <p><em>Note: You can see the linker script that is used by the linker by using <code class="language-plaintext highlighter-rouge">--verbose</code> argument</em></p> <p>We can finally run our kernel. Let’s create a simple build script.</p> <div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">#!/bin/sh</span>
+
+i386-elf-as <span class="nt">-msyntax</span><span class="o">=</span>intel <span class="nt">-mmnemonic</span><span class="o">=</span>intel boot.s <span class="nt">-o</span> boot.o <span class="c"># 1 </span>
+i386-elf-ld <span class="nt">-T</span> linker.ld boot.o <span class="nt">-o</span> kernel.bin                <span class="c"># 2</span>
+</code></pre></div></div> <ol> <li>We assemble the <code class="language-plaintext highlighter-rouge">boot.s</code>.</li> <li>We generated our kernel executable by running the linker with <code class="language-plaintext highlighter-rouge">linker.ld</code>.</li> </ol> <p>And let’s run the kernel.</p> <div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>./build.sh <span class="o">&amp;&amp;</span> qemu-system-i386 <span class="nt">-kernel</span> kernel.bin
+</code></pre></div></div> <p>If everything works fine, you should see <code class="language-plaintext highlighter-rouge">hi</code> printed to qemu screen.</p> <h2 id="adding-some-c-code"> <a href="#adding-some-c-code" class="anchor-heading" aria-labelledby="adding-some-c-code"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Adding some C code </h2> <p>Assembly is great, but it would be really painful to extend our kernel’s capabilities with it. So let’s create a helper C file for VGA.</p> <p>First thing we need to know is that we cannot use anything that depends on an underlying OS like <code class="language-plaintext highlighter-rouge">stdio</code>.</p> <p><em>DIY: Try to write your own vga helper. It should be easy to use and incrementally write the characters starting from the physical address <code class="language-plaintext highlighter-rouge">0xb8000</code>.</em></p> <p>Since this is just an abstraction and nothing really fancy happens, I will just provide the files.</p> <p><strong>vga.h</strong></p> <div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#ifndef VGA_H_
+#define VGA_H_
+</span>
+<span class="k">typedef</span> <span class="k">enum</span> <span class="p">{</span>
+  <span class="n">VGA_BLACK</span><span class="p">,</span>
+  <span class="n">VGA_BLUE</span><span class="p">,</span>
+  <span class="n">VGA_GREEN</span><span class="p">,</span>
+  <span class="n">VGA_CYAN</span><span class="p">,</span>
+  <span class="n">VGA_RED</span><span class="p">,</span>
+  <span class="n">VGA_MAGENTA</span><span class="p">,</span>
+  <span class="n">VGA_BROWN</span><span class="p">,</span>
+  <span class="n">VGA_WHITE</span><span class="p">,</span>
+  <span class="n">VGA_GRAY</span><span class="p">,</span>
+  <span class="n">VGA_LIGHT_BLUE</span><span class="p">,</span>
+  <span class="n">VGA_LIGHT_GREEN</span><span class="p">,</span>
+  <span class="n">VGA_LIGHT_CYAN</span><span class="p">,</span>
+  <span class="n">VGA_LIGHT_RED</span><span class="p">,</span>
+  <span class="n">VGA_LIGHT_MAGENTA</span><span class="p">,</span>
+  <span class="n">VGA_YELLOW</span><span class="p">,</span>
+  <span class="n">VGA_BRIGHT_WHITE</span>
+<span class="p">}</span> <span class="n">vga_color_t</span><span class="p">;</span>
+
+<span class="kt">void</span> <span class="nf">vga_print</span><span class="p">(</span><span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="p">);</span>
+
+<span class="kt">void</span> <span class="nf">vga_set_color</span><span class="p">(</span><span class="n">vga_color_t</span> <span class="n">bg</span><span class="p">,</span> <span class="n">vga_color_t</span> <span class="n">fg</span><span class="p">);</span>
+
+<span class="cp">#endif
+</span></code></pre></div></div> <p><strong>vga.c</strong></p> <div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include "vga.h"
+#include &lt;stddef.h&gt;
+#include &lt;stdint.h&gt;
+</span>
+<span class="cp">#define MAX_COL 80
+#define MAX_ROW 25
+</span>
+<span class="cp">#define VGA_ADDR 0xb8000
+#define BG_COL(X) (X &lt;&lt; 12)
+#define FG_COL(X) (X &lt;&lt; 8)
+</span>
+<span class="k">static</span> <span class="kt">uint16_t</span> <span class="o">*</span><span class="k">const</span> <span class="n">VGA_BUFFER</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint16_t</span> <span class="o">*</span><span class="p">)</span><span class="n">VGA_ADDR</span><span class="p">;</span>
+
+<span class="k">static</span> <span class="kt">int</span> <span class="n">vga_index</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+<span class="k">static</span> <span class="kt">uint16_t</span> <span class="n">active_color</span> <span class="o">=</span> <span class="n">BG_COL</span><span class="p">(</span><span class="n">VGA_BLACK</span><span class="p">)</span> <span class="o">|</span> <span class="n">FG_COL</span><span class="p">(</span><span class="n">VGA_BRIGHT_WHITE</span><span class="p">);</span>
+
+<span class="k">static</span> <span class="kt">void</span> <span class="nf">vga_print_char</span><span class="p">(</span><span class="kt">char</span> <span class="n">character</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">vga_index</span> <span class="o">&gt;=</span> <span class="n">MAX_COL</span> <span class="o">*</span> <span class="n">MAX_ROW</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span><span class="p">;</span>
+  <span class="p">}</span>
+
+  <span class="k">if</span> <span class="p">(</span><span class="sc">'\n'</span> <span class="o">==</span> <span class="n">character</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">vga_index</span> <span class="o">=</span> <span class="n">vga_index</span> <span class="o">+</span> <span class="n">MAX_COL</span> <span class="o">-</span> <span class="p">((</span><span class="n">vga_index</span><span class="p">)</span> <span class="o">%</span> <span class="n">MAX_COL</span><span class="p">);</span>
+    <span class="k">return</span><span class="p">;</span>
+  <span class="p">}</span>
+
+  <span class="n">VGA_BUFFER</span><span class="p">[</span><span class="n">vga_index</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">active_color</span> <span class="o">|</span> <span class="n">character</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">void</span> <span class="nf">vga_print</span><span class="p">(</span><span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">string</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;;</span> <span class="o">++</span><span class="n">i</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">string</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="sc">'\0'</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">return</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">vga_print_char</span><span class="p">(</span><span class="n">string</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">void</span> <span class="nf">vga_set_color</span><span class="p">(</span><span class="n">vga_color_t</span> <span class="n">bg</span><span class="p">,</span> <span class="n">vga_color_t</span> <span class="n">fg</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">active_color</span> <span class="o">=</span> <span class="n">BG_COL</span><span class="p">(</span><span class="n">bg</span><span class="p">)</span> <span class="o">|</span> <span class="n">FG_COL</span><span class="p">(</span><span class="n">fg</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div> <p>Our compiled code should not depend on the host environment. So we will use <code class="language-plaintext highlighter-rouge">-ffreestanding</code> argument of <code class="language-plaintext highlighter-rouge">gcc</code>. The manual file says:</p> <blockquote> <p><em><strong>-ffreestanding</strong> Assert that compilation takes place in a freestanding environment. This implies -fno-builtin. A freestanding environment is one in which the standard library may not exist, and program startup may not necessarily be at “main”. The most obvious example is an OS kernel. This is equivalent to -fno-hosted.</em></p> </blockquote> <p>And we just want to compile the file, not link it. So we will use <code class="language-plaintext highlighter-rouge">-c</code> argument for that.</p> <p><strong>build.sh</strong></p> <div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">#!/bin/sh</span>
+
+i386-elf-as <span class="nt">-msyntax</span><span class="o">=</span>intel <span class="nt">-mmnemonic</span><span class="o">=</span>intel boot.s <span class="nt">-o</span> boot.o
+i386-elf-gcc <span class="nt">-c</span> vga.c <span class="nt">-ffreestanding</span> <span class="nt">-o</span> vga.o
+i386-elf-ld <span class="nt">-T</span> linker.ld boot.o vga.o <span class="nt">-o</span> kernel.bin
+</code></pre></div></div> <p>Note that the object file <code class="language-plaintext highlighter-rouge">vga.o</code> is added to call to linker. Otherwise we won’t be able to call any function of <code class="language-plaintext highlighter-rouge">vga</code> from <code class="language-plaintext highlighter-rouge">boot</code>.</p> <h2 id="calling-a-c-function"> <a href="#calling-a-c-function" class="anchor-heading" aria-labelledby="calling-a-c-function"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Calling a C function </h2> <p>In order to properly call a function, we need to use <code class="language-plaintext highlighter-rouge">call</code> instruction. What this instruction does is:</p> <ul> <li>Push <code class="language-plaintext highlighter-rouge">eip</code> to the stack (so that we can return from the function)</li> <li>Jump to the function’s address</li> </ul> <p>Simple, right?</p> <p>Not so fast. Don’t forget that we are the OS, so we don’t have a stack. To have a stack, we first need to reserve some bytes and set the stack pointer (<code class="language-plaintext highlighter-rouge">esp</code>).</p> <p>Our stack will be basically some uninitialized bytes. <code class="language-plaintext highlighter-rouge">.bss</code> section contains statically allocated variables that are declared byt have not been assigned a value yet<a href="https://en.wikipedia.org/wiki/.bss">[*]</a>. So let’s put our stack to <code class="language-plaintext highlighter-rouge">.bss</code> section.</p> <p><strong>boot.s</strong></p> <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.section .text
+.global _start
+_start:
+    lea esp, [stack_top]
+
+    mov word ptr [0xb8000], 'h' | (0xF &lt;&lt; 8)
+    mov word ptr [0xb8000 + 0x2], 'i' | (0xF &lt;&lt; 8)
+
+    hlt
+
+.section .bss
+stack_bottom:
+.skip 8192 # 8 KB
+stack_top:
+</code></pre></div></div> <p>We put our stack to the <code class="language-plaintext highlighter-rouge">.bss</code> section. Note that <code class="language-plaintext highlighter-rouge">stack_top</code> is below <code class="language-plaintext highlighter-rouge">stack_bottom</code>. Because stacks grow through the lower addresses.</p> <p>Let’s add the <code class="language-plaintext highlighter-rouge">.bss</code> section to our linker script as well.</p> <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ENTRY(_start)
+
+SECTIONS
+{
+    . = 1M;
+
+    .multiboot : ALIGN(4) {
+        *(.multiboot)
+    }
+
+    .text : {
+        *(.text)
+    }
+
+    .bss : {
+        *(.bss)
+    }
+}
+</code></pre></div></div> <p>But we are still not done :)</p> <h2 id="segmentation"> <a href="#segmentation" class="anchor-heading" aria-labelledby="segmentation"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Segmentation </h2> <p>We can consider an operating system as an abstraction over hardware to make our lives easier. To make our lives easier, provide security and improve performance, operating systems virturalize the physical memory. Memory addresses that we use are logical addresses that are translated into physical addresses with the help of the hardware. The hardware also provides us some security features.</p> <p><em>DIY: To understand the segmentation, I really suggest you to go read <code class="language-plaintext highlighter-rouge">Segmentation</code> part of the <a href="https://pages.cs.wisc.edu/~remzi/OSTEP/">OSTEP book</a>. I will just show you the basic segmentation setup in IA-32 architecture by skimming through the <a href="https://software.intel.com/content/www/us/en/develop/articles/intel-sdm.html">Intel’s developer manual</a> Volume 3, Chapter 3.</em></p> <p><strong>All of the references are from Intel’s developer manual, Volume 3, Chapter 3. Also, we won’t do paging on this post. This is too much already.</strong></p> <p>It says in 3.1</p> <blockquote> <p><em>A logical address consists of a segment selector and an offset. The segment selector is a unique identifier for a segment. Among other things it provides an offset into a descriptor table (such as the global descriptor table, GDT) to a data structure called a segment descriptor. Each segment has a segment descriptor, which specifies the size of the segment, the access rights and privilege level for the segment, the segment type, and the location of the first byte of the segment in the linear address space (called the base address of the segment). The offset part of the logical address is added to the base address for the segment to locate a byte within the segment. The base address plus the offset thus forms a linear address in the processor’s linear address space.</em></p> </blockquote> <p>And in 3.2.1</p> <blockquote> <p><em>To implement a basic flat memory model with the IA-32 architecture, at least two segment descriptors must be created, one for referencing a code segment and one for referencing a data segment (see Figure 3-2). Both of these segments, however, are mapped to the entire linear address space: that is, both segment descriptors have the same base address value of 0 and the same segment limit of 4 GBytes. By setting the segment limit to 4 GBytes, the segmentation mechanism is kept from generating exceptions for out of limit memory references, even if no physical memory resides at a particular address.</em></p> </blockquote> <p>To achieve a basic flat model, what we have to do is:</p> <ul> <li>Create a GDT that contains 3 segment descriptors: <ul> <li>Null segment descriptor.</li> <li>Code segment descriptor.</li> <li>Data segment descriptor.</li> </ul> </li> <li>Create a GDT descriptor: <ul> <li>Size of the GDT - 1.</li> <li>Address of the GDT.</li> </ul> </li> <li>Load the correct values to segment registers: <ul> <li>Code segment register should point to the code segment descriptor.</li> <li>Other segment registers should point to the data segment descriptor.</li> </ul> </li> </ul> <p>You can see the visual representation of GDT <a href="https://wiki.osdev.org/Global_Descriptor_Table">here</a>.</p> <p>So let’s start by creating the null descriptor. This is required by the IA-32 architecture.</p> <p><strong>boot.s</strong></p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="nf">...</span>
+    <span class="nf">hlt</span>
+
+<span class="nl">gdt:</span>
+    <span class="nf">.long</span> <span class="mh">0x0</span>
+    <span class="nf">.long</span> <span class="mh">0x0</span>
+</code></pre></div></div> <p>After that let’s create the code and data segment descriptors. But to do that, let’s first check out the structure of the segment descriptor. You can check out the detailed explanation of the segment descriptor structure in <a href="https://wiki.osdev.org/Global_Descriptor_Table">here</a>.</p> <p><strong>Please check it out. Otherwise you won’t be understand the following part.</strong></p> <p><em>DIY: I put the first null descriptor for you. By following the document from OSDev, try to setup the code and data segment descriptors.</em></p> <p><strong>boot.s</strong></p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="nl">gdt:</span>
+    <span class="nf">.long</span> <span class="mh">0x0</span>
+    <span class="nf">.long</span> <span class="mh">0x0</span>
+<span class="nl">code_desc:</span>
+    <span class="nf">.word</span> <span class="mh">0xffff</span>
+    <span class="nf">.word</span> <span class="mh">0x0</span>
+    <span class="nf">.byte</span> <span class="mh">0x0</span>
+    <span class="nf">.byte</span> <span class="mh">0x9a</span>
+    <span class="nf">.byte</span> <span class="mh">0xcf</span>
+    <span class="nf">.byte</span> <span class="mh">0x0</span>
+<span class="nl">data_desc:</span>
+    <span class="nf">.word</span> <span class="mh">0xffff</span>
+    <span class="nf">.word</span> <span class="mi">0</span>
+    <span class="nf">.byte</span> <span class="mi">0</span>
+    <span class="nf">.byte</span> <span class="mh">0x92</span>
+    <span class="nf">.byte</span> <span class="mh">0xcf</span>
+    <span class="nf">.byte</span> <span class="mi">0</span>
+</code></pre></div></div> <p>After this, we need one more descriptor that describes the GDT. It is like a pointer to an array that contains pointers.</p> <p><em>DIY: Create a GDT descriptor called <code class="language-plaintext highlighter-rouge">gdt_desc</code> and put 16-bit sizeof GDT - 1 and 32-bit pointer to GDT.</em></p> <p><strong>boot.s</strong></p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">data_desc:</span>
+    <span class="nf">...</span>
+<span class="nl">gdt_desc:</span>
+    <span class="nf">.word</span> <span class="p">(</span><span class="nv">gdt_desc</span> <span class="o">-</span> <span class="nv">gdt</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="nf">.long</span> <span class="nv">gdt</span>
+</code></pre></div></div> <p>And finally we can load our GDT to <code class="language-plaintext highlighter-rouge">gdtr</code> (Global Descriptor Table Register) and fill the segment registers.</p> <p><strong>boot.s</strong></p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">.section</span> <span class="nv">.text</span>
+<span class="nf">.global</span> <span class="nv">_start</span>
+<span class="nl">_start:</span>
+    <span class="nf">lea</span> <span class="nb">esp</span><span class="p">,</span> <span class="p">[</span><span class="nv">stack_top</span><span class="p">]</span>
+
+    <span class="nf">lgdt</span> <span class="p">[</span><span class="nv">gdt_desc</span><span class="p">]</span>   <span class="err">#</span> <span class="mi">1</span>
+    <span class="nf">mov</span> <span class="nb">ax</span><span class="p">,</span> <span class="mh">0x10</span>      
+    <span class="nf">mov</span> <span class="nb">ss</span><span class="p">,</span> <span class="nb">ax</span>        <span class="err">#</span> <span class="mi">2</span>
+    <span class="nf">mov</span> <span class="nb">ds</span><span class="p">,</span> <span class="nb">ax</span>       
+    <span class="nf">mov</span> <span class="nb">es</span><span class="p">,</span> <span class="nb">ax</span>       
+    <span class="nf">mov</span> <span class="nb">fs</span><span class="p">,</span> <span class="nb">ax</span>        
+    <span class="nf">jmp</span> <span class="mh">0x8</span><span class="p">:</span><span class="nv">.load_cs</span>  <span class="err">#</span> <span class="mi">3</span>
+
+<span class="nl">.load_cs:</span>
+</code></pre></div></div> <ol> <li>We load our GDT descriptor to <code class="language-plaintext highlighter-rouge">gdtr</code> by using <code class="language-plaintext highlighter-rouge">lgdt</code> (Load Global Descriptor Table) instruction.</li> <li>We make the segment registers (other than CS) point to the data segment descriptor.</li> <li>Since we cannot write to CS register, we did a long jump to load <code class="language-plaintext highlighter-rouge">0x8</code> to the CS register.</li> </ol> <p>But wait a minute, what are these <code class="language-plaintext highlighter-rouge">0x10</code> and <code class="language-plaintext highlighter-rouge">0x8</code>? How are these makes the segment registers to point to the correct descriptor?</p> <p>Yeah, good point!</p> <p>As it says in 3.4.2:</p> <blockquote> <p><em>A segment selector is a 16-bit identifier for a segment (see Figure 3-6). It does not point directly to the segment, but instead points to the segment descriptor that defines the segment.</em></p> </blockquote> <ul> <li>First 2 bits of the segment selector is Requested Privilege Level, since we are just using the privilege level 0, we will make this 0 as well.</li> <li>The following bit is the Table Indicator. It indicates if the table is LDT or GDT. It is GDT, so we will make this 0.</li> <li>Remaining bits indicate the index of the segment descriptor.</li> </ul> <p>We load <code class="language-plaintext highlighter-rouge">0x8</code> to CS. The underlying math is this: - RPL is 0 - Table Indicator is 0 - Index is 1</p> <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(1 &lt;&lt; 3) = 0x8    
+</code></pre></div></div> <p>And we load <code class="language-plaintext highlighter-rouge">0x10</code> to other segment registers. - RPL is 0 - Table Indicator is 0 - Index is 2</p> <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(2 &lt;&lt; 3) = 0x10
+</code></pre></div></div> <h2 id="calling-the-c-function-for-real"> <a href="#calling-the-c-function-for-real" class="anchor-heading" aria-labelledby="calling-the-c-function-for-real"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Calling the C function (for real) </h2> <p>Finally we can call the helper function that we wrote.</p> <p>To properly call a function, we need to follow some calling conventions.</p> <p><em>DIY: Call the function by following the <code class="language-plaintext highlighter-rouge">cdecl</code> convention</em></p> <p>The arguments are pushed to stack from right-to-left, and the caller cleans up the pushed arguments after the function returns.</p> <p>Let’s print something fancy.</p> <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">.load_cs:</span>
+    <span class="nf">push</span> <span class="mh">0xF</span>
+    <span class="nf">push</span> <span class="mh">0x4</span>
+    <span class="nf">call</span> <span class="nv">vga_set_color</span>
+    <span class="nf">add</span> <span class="nb">esp</span><span class="p">,</span> <span class="mh">0x8</span>
+
+    <span class="nf">lea</span> <span class="nb">eax</span><span class="p">,</span> <span class="p">[</span><span class="nv">my_brain_text</span><span class="p">]</span>
+    <span class="nf">push</span> <span class="nb">eax</span>
+    <span class="nf">call</span> <span class="nv">vga_print</span>
+    <span class="nf">add</span> <span class="nb">esp</span><span class="p">,</span> <span class="mh">0x4</span>
+
+    <span class="nf">push</span> <span class="mh">0x4</span>
+    <span class="nf">push</span> <span class="mh">0xF</span>
+    <span class="nf">call</span> <span class="nv">vga_set_color</span>
+    <span class="nf">add</span> <span class="nb">esp</span><span class="p">,</span> <span class="mh">0x8</span>
+
+    <span class="nf">lea</span> <span class="nb">eax</span><span class="p">,</span> <span class="p">[</span><span class="nv">hurts_text</span><span class="p">]</span>
+    <span class="nf">push</span> <span class="nb">eax</span>
+    <span class="nf">call</span> <span class="nv">vga_print</span>
+    <span class="nf">add</span> <span class="nb">esp</span><span class="p">,</span> <span class="mh">0x4</span>
+
+    <span class="nf">hlt</span>
+
+<span class="nl">my_brain_text:</span>
+<span class="nf">.ascii</span> <span class="err">"</span><span class="nv">My</span> <span class="nv">Brain</span><span class="err">\</span><span class="nv">n</span><span class="err">\</span><span class="mi">0</span><span class="s">"
+hurts_text:
+.ascii "</span><span class="nv">Hurts</span><span class="err">\</span><span class="nv">n</span><span class="err">\</span><span class="mi">0</span><span class="err">"</span>
+</code></pre></div></div> <h2 id="whats-next"> <a href="#whats-next" class="anchor-heading" aria-labelledby="whats-next"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> What’s next? </h2> <p>We will deal with the interrupts and paging on next posts. Feel free to contact if you find anything wrong, you have any questions or any ideas.</p> </div> </div> <div class="search-overlay"></div> </div> </body> </html>
