@@ -5,13 +5,13 @@ parent: OS Dev Journey
 nav_order: 4
 ---
 
-# Building a Simple Kernel for IA-32 
+# Building a Simple Kernel for IA-32
 
-## How to get most out this post?
+## How to get the most out of this post?
 
-Before digging into some weird stuff, I want to share some thoughts to make sure that you are getting the most out of this blog post. First of all, this post really encourages you to make lots of research and read a lot. There are several reasons to that:
+Before digging into some weird stuff, I want to share some thoughts to make sure that you are getting the most out of this blog post. First of all, this post encourages you to make lots of research and read a lot. There are several reasons for that:
 
-1. Getting used to reading official documentations is super benefitial and you will always find lots of hidden gems and hacks when you read official docs.
+1. Getting used to reading official documentation is super beneficial and you will always find lots of hidden gems and hacks when you read official docs.
 
 2. Although there are few great resources about OS development, this is a field where you should find and figure out things by yourself.
 
@@ -21,15 +21,17 @@ That's enough already, let's dig into the real thing.
 
 ## Introduction
 
-Before digging into more complex stuff like cpu scheduling, paging, etc. we should of course have a bootable kernel. You can do some research about the boot process, we will just make a kernel that supports Multiboot.
+Before digging into more complex stuff like CPU scheduling, paging, etc. we should of course have a bootable kernel. You can do some research about the boot process, we will just make a kernel that supports Multiboot.
+
+You can find the source code in [here](https://github.com/aeryz/isletiyOS).
 
 ## Supporting multiboot specification
 
-Multiboot specification is an open standard describing how a boot loader can load an x86 operating system kernel[\[\*\]](https://en.wikipedia.org/wiki/Multiboot_specification). This way, any boot loader that are able to load multiboot compliant kernel and we won't need to write our own boot loader. Of course one can say that there is Linux, so we don't need to write our own operating system. But it is fun and helps you to understand how real systems really work.
+Multiboot specification is an open standard describing how a boot loader can load an x86 operating system kernel[\[\*\]](https://en.wikipedia.org/wiki/Multiboot_specification). This way, any boot loader that support multiboot can load any multiboot compliant kernel and we won't need to write our own boot loader. Of course one can say that there is Linux, so we don't need to write our own operating system. But it is fun and helps you to understand how real systems really work.
 
 There are few requirements in the [specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html) to make things work. First of all the specification says:
 
-> *The Multiboot header must be contained completely within the first 8192 bytes of the OS image, and must be longword (32-bit) aligned. In general, it should come as early as possible, and may be embedded in the beginning of the text segment after the real executable header.*
+> *The Multiboot header must be contained completely within the first 8192 bytes of the OS image, and must be longword (32-bit) aligned. In general, it should come as early as possible and maybe embedded at the beginning of the text segment after the real executable header.*
 
 So we will make our header 32-bit aligned and put it as early as possible. The header fields that we will be using are:
 
@@ -39,7 +41,7 @@ So we will make our header 32-bit aligned and put it as early as possible. The h
 | 4      | u32  | flags      |
 | 8      | u32  | checksum   |
 
-Let's start implementing this. 
+Let's start implementing this.
 
 I prefer the Intel syntax. Let's use it.
 
@@ -57,13 +59,13 @@ After this, we can start putting our 4-byte aligned header.
 .long -(0x1BADB002 + 0)  # 5
 ```
 
-1. The multiboot header should be 32-bit (4 byte) aligned. So we aligned the section by using `.align` [directive](https://ftp.gnu.org/old-gnu/Manuals/gas-2.9.1/html_chapter/as_7.html)
-3. We name this section as `.multiboot` and will be using this name later on to make sure that our header is 4-byte aligned and loaded very early in the executable file.
+1. The multiboot header should be 32-bit (4 bytes) aligned. So we aligned the section by using `.align` [directive](https://ftp.gnu.org/old-gnu/Manuals/gas-2.9.1/html_chapter/as_7.html).
+3. We name this section as `.multiboot` and will be using this name, later on, to make sure that our header is 4-byte aligned and loaded very early in the executable file.
 4. Magic number that indicates multiboot 1.
 5. We don't have any flags set. So we put 0.
-6. We put the checksum value. It should give 0, when added to the other magic fields.
+6. We put the checksum value. It should give 0 when added to the other magic fields.
 
-To be able to assemble `boot.s` for our bare bones x86 target, we need to use a cross-platform toolchain. We don't want anything that depends on our host ecosystem. We can achieve this by using `binutils`.
+To be able to assemble `boot.s` for our bare-bones x86 target, we need to use a cross-platform toolchain. We don't want anything that depends on our host ecosystem. We can achieve this by using `binutils`.
 
 Let's assemble `boot.s` and validate our multiboot header.
 
@@ -71,7 +73,7 @@ Let's assemble `boot.s` and validate our multiboot header.
 i386-elf-as -msyntax=intel -mmnemonic=intel boot.s -o boot.o
 ```
 
-As you can guess, `-msyntax` and `-mmnemonic` arguments are used for intel syntax. 
+As you can guess, `-msyntax` and `-mmnemonic` arguments are used for intel syntax.
 
 Validate the header:
 ```sh
@@ -80,32 +82,32 @@ grub-file --is-x86-multiboot boot.o || echo ":("
 
 If the command does not give us a sad face, then we are good to go.
 
-## Writing some code 
+## Writing some code
 
-The boot loader will jump to the `_start` symbol. If we don't define the `_start` symbol, the linker will provide it with a predefined location. Our super simple kernel would probably work if we won't define the `_start` symbol. I will demonstrate what I mean later.
+The boot loader will jump to the `_start` symbol. If we don't define the `_start` symbol, the linker will provide it with a predefined location. Our super simple kernel would probably work if we won't define the `_start` symbol. Because we will put our kernel code to the beginning of the `.text` section. Otherwise this probably wouldn't work.
 
 ```nasm
 .section .text #1
 .global _start #2
-_start: 
+_start:
 ```
 
 1. Executable part of the binary goes into `.text` section.
 2. We make `_start` symbol accessible from outside of the file.
 
-Let's print a very simple `Hi` message to see if everything works fine. Since we don't have any underlying OS (basically we are the OS), we don't have anything like `printf` or `write` system call. Because the system calls are provided by the operating system. We need to implement such things ourselves in this wild, bare bones environment. 
+Let's print a very simple `Hi` message to see if everything works fine. Since we don't have any underlying OS (basically we are the OS), we don't have anything like `printf` or `write` system call. Because the system calls are provided by the operating system. We need to implement such things ourselves in this wild, bare-bones environment.
 
-We will use the [VGA text mode](https://en.wikipedia.org/wiki/VGA_text_mode) to print to screen. The one we will be using in `qemu` provides a `80x25 16-bit` buffer located at physical memory address `0xB8000`. Layout of a character is like this:
+We will use the [VGA text mode](https://en.wikipedia.org/wiki/VGA_text_mode) to print to screen. The one we will be using in `qemu` provides a `80x25 16-bit` buffer located at physical memory address `0xB8000`. The layout of a character is like this:
 
 | Bits  | Description       |
 | ------| ------------------|
-| 0-7   | Code point        | 
-| 8-11  | Foreground color  | 
-| 12-15 | Background color  | 
+| 0-7   | Code point        |
+| 8-11  | Foreground color  |
+| 12-15 | Background color  |
 
 You can also check out the 4-bit color palette [here](https://www.fountainware.com/EXPL/vga_color_palettes.htm).
 
-To print a white-on-black `HI` message, we need to do a small math.
+To print a white-on-black `HI` message, we need to do small math.
 
 ```nasm
 .section .text
@@ -113,11 +115,11 @@ To print a white-on-black `HI` message, we need to do a small math.
 _start:
     mov word ptr [0xb8000], 'h' | (0xF << 8)
     mov word ptr [0xb8000 + 0x2], 'i' | (0xF << 8)
-    
+
     hlt
 ```
 
-We basically left-shift the foreground color (WHITE) by 8 bits and OR it with `h` and `i` to get white-on-black characters and put it to physical address `0xb8000` which is the address of the VGA buffer.
+We left-shift the foreground color (WHITE) by 8 bits and OR it with `h` and `i` to get white-on-black characters and put it to physical address `0xb8000` which is the address of the VGA buffer.
 
 ## Running the code
 
@@ -126,7 +128,7 @@ We will be using [qemu](https://www.qemu.org) to run our kernel. To generate a b
 Let's think about our needs for a second:
 1. Our entry point's name is `_start`
 2. Multiboot header should be 4-byte aligned.
-3. Multiboot header should be within first 8192 bytes of the OS image. (We can just put it to top)
+3. Multiboot header should be within the first 8192 bytes of the OS image. (We can just put it to the top)
 4. Any OS data should not collide with any special locations. (Like VGA buffer in `0xb8000`)
 
 *DIY: Try to write your own linker script by considering the requirements above.*
@@ -136,7 +138,7 @@ If you didn't write your own linker script, it is fine :) Here is a very minimal
 ```
 ENTRY(_start) /* 1 */
 
-SECTIONS  
+SECTIONS
 {
     . = 1M; /* 2 */
 
@@ -153,7 +155,7 @@ SECTIONS
 ```
 
 1. We defined `_start` as the entry point.
-2. We make the kernel code start from 1 MB, it is a convential location to put the kernel code. Also, this way our kernel code won't collide with the VGA buffer.
+2. We make the kernel code start from 1 MB, it is a convenient location to put the kernel code. Also, this way our kernel code won't collide with the VGA buffer.
 3. We put the `.multiboot` section to top and align it to 4 bytes.
 4. We put the actual code.
 
@@ -164,7 +166,7 @@ We can finally run our kernel. Let's create a simple build script.
 ```sh
 #!/bin/sh
 
-i386-elf-as -msyntax=intel -mmnemonic=intel boot.s -o boot.o # 1 
+i386-elf-as -msyntax=intel -mmnemonic=intel boot.s -o boot.o # 1
 i386-elf-ld -T linker.ld boot.o -o kernel.bin                # 2
 ```
 
@@ -182,11 +184,11 @@ If everything works fine, you should see `hi` printed to qemu screen.
 
 ## Adding some C code
 
-Assembly is great, but it would be really painful to extend our kernel's capabilities with it. So let's create a helper C file for VGA. 
+Assembly is great, but it would be really painful to extend our kernel's capabilities with it. So let's create a helper C file for VGA.
 
-First thing we need to know is that we cannot use anything that depends on an underlying OS like `stdio`.
+The first thing we need to know is that we cannot use anything that depends on an underlying OS like `stdio`.
 
-*DIY: Try to write your own vga helper. It should be easy to use and incrementally write the characters starting from the physical address `0xb8000`.* 
+*DIY: Try to write your own vga helper. It should be easy to use and incrementally write the characters starting from the physical address `0xb8000`.*
 
 Since this is just an abstraction and nothing really fancy happens, I will just provide the files.
 
@@ -283,11 +285,11 @@ i386-elf-gcc -c vga.c -ffreestanding -o vga.o
 i386-elf-ld -T linker.ld boot.o vga.o -o kernel.bin
 ```
 
-Note that the object file `vga.o` is added to call to linker. Otherwise we won't be able to call any function of `vga` from `boot`.
+Note that the object file `vga.o` is added to call to the linker. Otherwise, we won't be able to call any function of `vga` from `boot`.
 
 ## Calling a C function
 
-In order to properly call a function, we need to use `call` instruction. What this instruction does is:
+To properly call a function, we need to use `call` instruction. What this instruction does is:
 
 - Push `eip` to the stack (so that we can return from the function)
 - Jump to the function's address
@@ -296,7 +298,7 @@ Simple, right?
 
 Not so fast. Don't forget that we are the OS, so we don't have a stack. To have a stack, we first need to reserve some bytes and set the stack pointer (`esp`).
 
-Our stack will be basically some uninitialized bytes. `.bss` section contains statically allocated variables that are declared byt have not been assigned a value yet[\[\*\]](https://en.wikipedia.org/wiki/.bss). So let's put our stack to `.bss` section.
+Our stack will be some uninitialized bytes. The `.bss` section contains statically allocated variables that are declared but have not been assigned a value yet[\[\*\]](https://en.wikipedia.org/wiki/.bss). So let's put our stack to `.bss` section.
 
 **boot.s**
 ```
@@ -345,14 +347,14 @@ But we are still not done :)
 
 ## Segmentation
 
-We can consider an operating system as an abstraction over hardware to make our lives easier. To make our lives easier, provide security and improve performance, operating systems virturalize the physical memory. Memory addresses that we use are logical addresses that are translated into physical addresses with the help of the hardware. The hardware also provides us some security features. 
+We can consider an operating system as an abstraction over hardware. To make our lives easier, provide security, and improve performance, operating systems virtualize the physical memory. Memory addresses that we use are logical addresses that are translated into physical addresses with the help of the hardware. The hardware also provides us some security features.
 
 *DIY: To understand the segmentation, I really suggest you to go read `Segmentation` part of the [OSTEP book](https://pages.cs.wisc.edu/~remzi/OSTEP/). I will just show you the basic segmentation setup in IA-32 architecture by skimming through the [Intel's developer manual](https://software.intel.com/content/www/us/en/develop/articles/intel-sdm.html) Volume 3, Chapter 3.*
 
 **All of the references are from Intel's developer manual, Volume 3, Chapter 3. Also, we won't do paging on this post. This is too much already.**
 
 It says in 3.1
-> *A logical address consists of a segment selector and an offset. The segment selector is a unique identifier for a segment. Among other things it provides an offset into a descriptor table (such as the global descriptor table, GDT) to a data structure called a segment descriptor. Each segment has a segment descriptor, which specifies the size of the segment, the access rights and privilege level for the segment, the segment type, and the location of the first byte of the segment in the linear address space (called the base address of the segment). The offset part of the logical address is added to the base address for the segment to locate a byte within the segment. The base address plus the offset thus forms a linear address in the processor’s linear address space.*
+> *A logical address consists of a segment selector and an offset. The segment selector is a unique identifier for a segment. Among other things, it provides an offset into a descriptor table (such as the global descriptor table, GDT) to a data structure called a segment descriptor. Each segment has a segment descriptor, which specifies the size of the segment, the access rights and privilege level for the segment, the segment type, and the location of the first byte of the segment in the linear address space (called the base address of the segment). The offset part of the logical address is added to the base address for the segment to locate a byte within the segment. The base address plus the offset thus forms a linear address in the processor’s linear address space.*
 
 And in 3.2.1
 > *To implement a basic flat memory model with the IA-32 architecture, at least two segment descriptors must be created, one for referencing a code segment and one for referencing a data segment (see Figure 3-2). Both of these segments, however, are mapped to the entire linear address space: that is, both segment descriptors have the same base address value of 0 and the same segment limit of 4 GBytes. By setting the segment limit to 4 GBytes, the segmentation mechanism is kept from generating exceptions for out of limit memory references, even if no physical memory resides at a particular address.*
@@ -385,9 +387,9 @@ gdt:
 
 After that let's create the code and data segment descriptors. But to do that, let's first check out the structure of the segment descriptor. You can check out the detailed explanation of the segment descriptor structure in [here](https://wiki.osdev.org/Global_Descriptor_Table).
 
-**Please check it out. Otherwise you won't be understand the following part.**
+**Please check it out. Otherwise, you won't understand the following part.**
 
-*DIY: I put the first null descriptor for you. By following the document from OSDev, try to setup the code and data segment descriptors.*
+*DIY: I put the first null descriptor for you. By following the document from OSDev, try to set up the code and data segment descriptors.*
 
 **boot.s**
 ```nasm
@@ -413,7 +415,7 @@ data_desc:
 
 After this, we need one more descriptor that describes the GDT. It is like a pointer to an array that contains pointers.
 
-*DIY: Create a GDT descriptor called `gdt_desc` and put 16-bit sizeof GDT - 1 and 32-bit pointer to GDT.*
+*DIY: Create a GDT descriptor called `gdt_desc` and put 16-bit size of GDT - 1 and 32-bit pointer to GDT.*
 
 **boot.s**
 ```nasm
@@ -424,7 +426,7 @@ gdt_desc:
     .long gdt
 ```
 
-And finally we can load our GDT to `gdtr` (Global Descriptor Table Register) and fill the segment registers.
+And finally, we can load our GDT to `gdtr` (Global Descriptor Table Register) and fill the segment registers.
 
 **boot.s**
 ```nasm
@@ -434,11 +436,11 @@ _start:
     lea esp, [stack_top]
 
     lgdt [gdt_desc]   # 1
-    mov ax, 0x10      
+    mov ax, 0x10
     mov ss, ax        # 2
-    mov ds, ax       
-    mov es, ax       
-    mov fs, ax        
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
     jmp 0x8:.load_cs  # 3
 
 .load_cs:
@@ -448,30 +450,30 @@ _start:
 2. We make the segment registers (other than CS) point to the data segment descriptor.
 3. Since we cannot write to CS register, we did a long jump to load `0x8` to the CS register.
 
-But wait a minute, what are these `0x10` and `0x8`? How are these makes the segment registers to point to the correct descriptor?
+But wait a minute, what are these `0x10` and `0x8`? How are these make the segment registers to point to the correct descriptor?
 
 Yeah, good point!
 
 As it says in 3.4.2:
-> *A segment selector is a 16-bit identifier for a segment (see Figure 3-6). It does not point directly to the segment, but instead points to the segment descriptor that defines the segment.*
+> *A segment selector is a 16-bit identifier for a segment (see Figure 3-6). It does not point directly to the segment but instead points to the segment descriptor that defines the segment.*
 
 - First 2 bits of the segment selector is Requested Privilege Level, since we are just using the privilege level 0, we will make this 0 as well.
 - The following bit is the Table Indicator. It indicates if the table is LDT or GDT. It is GDT, so we will make this 0.
 - Remaining bits indicate the index of the segment descriptor.
 
 We load `0x8` to CS. The underlying math is this:
-    - RPL is 0
-    - Table Indicator is 0
-    - Index is 1
+- RPL is 0
+- Table Indicator is 0
+- Index is 1
 
 ```
-(1 << 3) = 0x8    
+(1 << 3) = 0x8
 ```
 
 And we load `0x10` to other segment registers.
-    - RPL is 0
-    - Table Indicator is 0
-    - Index is 2
+- RPL is 0
+- Table Indicator is 0
+- Index is 2
 
 ```
 (2 << 3) = 0x10
@@ -479,7 +481,7 @@ And we load `0x10` to other segment registers.
 
 ## Calling the C function (for real)
 
-Finally we can call the helper function that we wrote. 
+Finally, we can call the helper function that we wrote.
 
 To properly call a function, we need to follow some calling conventions.
 
@@ -490,13 +492,13 @@ The arguments are pushed to stack from right-to-left, and the caller cleans up t
 Let's print something fancy.
 ```nasm
 .load_cs:
-    push 0xF
-    push 0x4
-    call vga_set_color
-    add esp, 0x8
+    push 0xF            # int fg
+    push 0x4            # int bg
+    call vga_set_color  
+    add esp, 0x8        # clean up the stack
 
-    lea eax, [my_brain_text]
-    push eax
+    lea eax, [my_brain_text] # Load the string's address
+    push eax                 # const char *
     call vga_print
     add esp, 0x4
 
@@ -520,4 +522,4 @@ hurts_text:
 
 ## What's next?
 
-We will deal with the interrupts and paging on next posts. Feel free to contact if you find anything wrong, you have any questions or any ideas. 
+We will deal with the interrupts and paging on the next posts. Feel free to contact if you find anything wrong, you have any questions or any ideas.
