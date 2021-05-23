@@ -19,6 +19,8 @@ I like reversing things, and being a reverse engineer means being a computer gee
 
 *By saying assembly, I am referring to x64 assembly.*
 
+You can find the source code in [here](https://github.com/aeryz/Assembly-TCP-Server).
+
 ## Requirements
 
 - To understand things covered in this post, you should have at least a basic understanding of assembly. 
