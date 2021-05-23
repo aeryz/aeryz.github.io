@@ -1,0 +1,550 @@
+<h1 id="x86_64-tcp-server">x86_64 Tcp Server</h1>
+
+<h2 id="introduction">Introduction</h2>
+
+<p>I like reversing things, and being a reverse engineer actually means being a computer geek who knows lots of things’ internals. And knowledge of assembly is one of them. So we will make a simple assembly project. Since there are many resources about assembly, I don’t want to explain basic things like what does the <code class="language-plaintext highlighter-rouge">mov</code> instruction do. Instead I will suggest you some resources and kindly ask you to study them first. After reading this blog post, - assuming I am not terrible at explaining stuff :) - you will have a basic understanding of:</p>
+
+<ul>
+  <li>Properly using and understanding the stack,</li>
+  <li>Calling conventions,</li>
+  <li>Using <code class="language-plaintext highlighter-rouge">rep</code> instructions,</li>
+  <li>Writing code for different platforms by using NASM proprocessor,</li>
+  <li>Doing syscalls,</li>
+  <li>Very basic usage of GDB and LLDB.</li>
+</ul>
+
+<h2 id="requirements">Requirements</h2>
+
+<ul>
+  <li>To understand things that covered in this post, you should have at least a basic understanding of assembly.</li>
+  <li>You should know what are sockets. If you did socket programming before, you would probably understand every syscall really easy.</li>
+</ul>
+
+<h2 id="syscalls">Syscalls</h2>
+
+<blockquote>
+  <p><em><a href="https://wiki.osdev.org/System_Calls">System Calls</a> are used to call a kernel service from user land. The goal is to be able to switch from user mode to kernel mode, with the associated privileges.</em></p>
+</blockquote>
+
+<p>For example, when we call <code class="language-plaintext highlighter-rouge">printf</code> in C, or <code class="language-plaintext highlighter-rouge">print</code> in Python, it calls the <code class="language-plaintext highlighter-rouge">write</code> system call to print something to the standard output. Or when we want to open some file in C,
+we call <code class="language-plaintext highlighter-rouge">open</code> system call.</p>
+
+<p>So we will start out program by doing a super simple ‘Hello World’ application by calling the <code class="language-plaintext highlighter-rouge">write</code> system call.</p>
+
+<p>The prototype of write function is like this:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">ssize_t</span> <span class="nf">write</span><span class="p">(</span><span class="kt">int</span> <span class="n">fd</span><span class="p">,</span> <span class="k">const</span> <span class="kt">void</span> <span class="o">*</span><span class="n">buf</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">count</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Making a syscall in C is super simple, you basically pass the correct arguments and call the correct function. But calling a function properly in assembly is a little bit different. We cannot call a syscall like this:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">syscall</span> <span class="nv">write</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nv">buffer</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>Firstly, system calls are not like regular functions but we actually trigger an interrupt to make the OS take care of the system call. And secondly, <code class="language-plaintext highlighter-rouge">write(1, buffer, 10)</code> like C won’t work in assembly because there is no mechanism to pass the parameters in a magical way in assembly. So we need to know how the kernel expects the parameters. <a href="https://wiki.osdev.org/Calling_Conventions">The calling convention</a> of x86_64 System V ABI is like this (these are the ones that we will use, for more detail please go to the reference):</p>
+
+<ul>
+  <li>Parameters are put in registers <code class="language-plaintext highlighter-rouge">rdi, rsi, rdx</code> from left to right.</li>
+  <li>The stack pointer (<code class="language-plaintext highlighter-rouge">rsp</code>) needs to be 16-byte aligned at call.</li>
+  <li>Return value should be put to <code class="language-plaintext highlighter-rouge">rax</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">rbx, rsp, rbp</code> should be preserved. This means that they must be same before and after the function call.</li>
+</ul>
+
+<p>As I said earlier, system calls are not like regular function calls. We are requesting a service from the operating system. To make a system call, we need to provide to kernel the syscall that we want to make. Like <code class="language-plaintext highlighter-rouge">write</code> or <code class="language-plaintext highlighter-rouge">open</code>. And then we can make the system call. We can specify the system call by putting the number of the system call to <code class="language-plaintext highlighter-rouge">rax</code> before making the system call. You can find 64-bit system call numbers of Linux in <a href="https://github.com/torvalds/linux/blob/master/arch/x86/entry/syscalls/syscall_64.tbl">here</a>.</p>
+
+<p>As you can see, the number of <code class="language-plaintext highlighter-rouge">write</code> system call is <code class="language-plaintext highlighter-rouge">1</code>. Here is an example usage of <code class="language-plaintext highlighter-rouge">write</code> system call:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">; export the main symbol so that `gcc` can find it</span>
+<span class="nf">global</span> <span class="nv">main</span>
+
+<span class="nf">section</span> <span class="nv">.text</span>
+
+<span class="nl">main:</span>
+    <span class="c1">; write(stdout, HELLO_STR, 14)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="mi">1</span>          <span class="c1">; Syscall number of `write`</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="mi">1</span>          <span class="c1">; Stdout</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nv">HELLO_STR</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mi">14</span>         <span class="c1">; Length of HELLO_STR</span>
+    <span class="nf">syscall</span>
+
+    <span class="c1">; exit(0)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="mi">60</span>         <span class="c1">; Syscall number of `exit`</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="nf">syscall</span>
+
+<span class="nf">section</span> <span class="nv">.data</span>
+<span class="nl">HELLO_STR:</span>
+    <span class="kd">db</span> <span class="s">"Hello, World!"</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">0</span>  <span class="c1">; "Hello, World!" followed by a newline and the null character.</span>
+</code></pre></div></div>
+
+<p>Let’s run it:</p>
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>nasm <span class="nt">-f</span> elf64 hello_world.s <span class="o">&amp;&amp;</span> gcc hello_world.o <span class="nt">-o</span> hello_world
+./hello_world
+
+<span class="nv">$ </span>Hello, World!
+</code></pre></div></div>
+
+<blockquote>
+  <p><strong><em>DIY: Take an input from stdin by using <code class="language-plaintext highlighter-rouge">read</code> syscall and print the string that you read. Hint: You use <code class="language-plaintext highlighter-rouge">resb</code> to allocate a buffer or make enough space on the stack and use the stack.</em></strong></p>
+</blockquote>
+
+<h2 id="using-the-nasm-preprocessor">Using the NASM Preprocessor</h2>
+
+<p>As you can see, we put <code class="language-plaintext highlighter-rouge">1</code> for <code class="language-plaintext highlighter-rouge">write</code> and <code class="language-plaintext highlighter-rouge">60</code> for <code class="language-plaintext highlighter-rouge">exit</code> to <code class="language-plaintext highlighter-rouge">rax</code>. Is it really necessary to memorize this numbers or look at the table each time? Of course not, like in C, we will use <a href="https://www.nasm.us/doc/nasmdoc4.html">the NASM’s preprocessor</a> to define those numbers.</p>
+
+<p>Let’s create a file named <code class="language-plaintext highlighter-rouge">defines.s</code>.</p>
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%define EXIT 60
+%define READ 0
+%define WRITE 1
+%define CLOSE 3
+%define ACCEPT 43
+%define SOCKET 41
+%define BIND 49
+%define SETSOCKOPT 54
+%define LISTEN 50
+
+%define STDOUT 1
+</span></code></pre></div></div>
+
+<p>Now we can include this file and change the syscall with the corresponding names.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%include "defines.s"
+</span><span class="nf">...</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">WRITE</span>
+<span class="nf">...</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">EXIT</span>
+<span class="nf">...</span>
+</code></pre></div></div>
+
+<p>Other reason that we use the preprocessor is to make it super easy to write code for both OS X and Linux. There are some small differences between the OS X and Linux (of course there are huge differences but I am talking for out little program):</p>
+
+<ul>
+  <li>System call numbers,</li>
+  <li>Some data structures,</li>
+  <li>Name of the ‘main’ function,</li>
+  <li>OS X requires a base number that needs to be added to each system call.</li>
+</ul>
+
+<p>Let’s enhance our definitions by using the conditionals:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">; Like in C, if we compile our code by defining PLATFORM_OSX, first part will be active, otherwise the `elif` part will be active.</span>
+<span class="cp">%ifdef PLATFORM_OSX
+    %define SYSCALL_BASE 0x2000000
+    %define EXIT 1
+    %define READ 3
+    %define WRITE 4
+    %define CLOSE 6
+    %define ACCEPT 30
+    %define SOCKET 97
+    %define BIND 104
+    %define SETSOCKOPT 105
+    %define LISTEN 106
+%elifdef PLATFORM_LINUX
+    %define SYSCALL_BASE 0
+    %define EXIT 60
+    %define READ 0
+    %define WRITE 1
+    %define CLOSE 3
+    %define ACCEPT 43
+    %define SOCKET 41
+    %define BIND 49
+    %define SETSOCKOPT 54
+    %define LISTEN 50
+%endif
+
+%define STDOUT 1
+</span>
+<span class="c1">; We don't want to add the base number everytime we make a syscall,</span>
+<span class="c1">; this is a nice way to prevent that.</span>
+<span class="cp">%define SYSCALL(NUM) (SYSCALL_BASE + NUM)
+</span></code></pre></div></div>
+
+<p>And also, on OS X, the compiler expects <code class="language-plaintext highlighter-rouge">_main</code> symbol to be exported. So we need to make it conditional as well.</p>
+
+<blockquote>
+  <p><strong><em>DIY: Update <code class="language-plaintext highlighter-rouge">hello_world.s</code> to run for both OS X and Linux</em></strong></p>
+</blockquote>
+
+<p>Here is the final version of <code class="language-plaintext highlighter-rouge">hello_world.s</code>:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%include "defines.s"
+
+%ifdef PLATFORM_LINUX
+</span><span class="nf">global</span> <span class="nv">main</span>
+<span class="cp">%elifdef PLATFORM_OSX
+</span><span class="nf">global</span> <span class="nv">_main</span>
+<span class="cp">%endif
+</span>
+<span class="nf">section</span> <span class="nv">.text</span>
+
+<span class="cp">%ifdef PLATFORM_LINUX
+</span><span class="nl">main:</span>
+<span class="cp">%elifdef PLATFORM_OSX
+</span><span class="nl">_main:</span>
+<span class="cp">%endif
+</span>    <span class="c1">; write(stdout, HELLO_STR, 14)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">WRITE</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nv">STDOUT</span>          
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nv">HELLO_STR</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mi">14</span>
+    <span class="nf">syscall</span>
+
+    <span class="c1">; exit(0)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">EXIT</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="nf">syscall</span>
+
+<span class="nf">section</span> <span class="nv">.data</span>
+<span class="nl">HELLO_STR:</span>
+    <span class="kd">db</span> <span class="s">"Hello, World!"</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">0</span>  <span class="c1">; "Hello, World!" followed by a newline and the null character.</span>
+</code></pre></div></div>
+
+<p>Now, we need to specify the platform on compilation, and there is a small tweak that we need to do for OS X. So let’s create a shell script to ease the build.</p>
+
+<p>In <code class="language-plaintext highlighter-rouge">build.sh</code>:</p>
+
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">#!/bin/bash</span>
+
+<span class="nv">FILES</span><span class="o">=(</span>hello_world<span class="o">)</span>
+
+<span class="k">if</span> <span class="o">[</span> <span class="s2">"PLATFORM_OSX"</span> <span class="o">=</span> <span class="s2">"</span><span class="nv">$1</span><span class="s2">"</span> <span class="o">]</span>
+<span class="k">then
+    </span><span class="nv">FORMAT</span><span class="o">=</span><span class="s2">"macho64"</span>
+    <span class="nv">PLATFORM</span><span class="o">=</span><span class="s2">"</span><span class="nv">$1</span><span class="s2">"</span>
+<span class="k">else
+    </span><span class="nv">FORMAT</span><span class="o">=</span><span class="s2">"elf64"</span>
+    <span class="nv">PLATFORM</span><span class="o">=</span><span class="s2">"PLATFORM_LINUX"</span>
+<span class="k">fi
+
+</span><span class="nv">OBJ_FILES</span><span class="o">=</span><span class="s2">""</span>
+
+<span class="k">for </span>f <span class="k">in</span> <span class="k">${</span><span class="nv">FILES</span><span class="p">[@]</span><span class="k">}</span>
+<span class="k">do
+    </span><span class="nb">echo</span> <span class="s1">'Building: '</span> <span class="nv">$f</span>
+    nasm <span class="nt">-d</span><span class="nv">$PLATFORM</span> <span class="nt">-f</span> <span class="nv">$FORMAT</span> <span class="nv">$f</span>.s
+    OBJ_FILES+<span class="o">=</span><span class="s2">"</span><span class="nv">$f</span><span class="s2">.o "</span>
+<span class="k">done
+
+</span><span class="nb">echo</span> <span class="s2">"Linking </span><span class="nv">$OBJ_FILES</span><span class="s2">"</span>
+<span class="k">if</span> <span class="o">[</span> <span class="s2">"PLATFORM_OSX"</span> <span class="o">=</span> <span class="s2">"</span><span class="nv">$PLATFORM</span><span class="s2">"</span> <span class="o">]</span>
+<span class="k">then
+    </span>gcc <span class="nt">-Wl</span>,-no_pie <span class="nv">$OBJ_FILES</span> <span class="nt">-o</span> hello_world
+<span class="k">else
+    </span>gcc <span class="nv">$OBJ_FILES</span> <span class="nt">-o</span> hello_world
+<span class="k">fi</span>
+</code></pre></div></div>
+
+<p>The script gets a platform specifier and compile each file in <code class="language-plaintext highlighter-rouge">FILES</code> list for the target platform.</p>
+
+<p>Let’s run it:</p>
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">chmod</span> +x build.sh
+
+<span class="c"># For Linux</span>
+./build.sh PLATFORM_LINUX
+
+<span class="c"># For OS X</span>
+./build.sh PLATFORM_OSX
+
+./hello_world
+</code></pre></div></div>
+
+<h2 id="creating-a-socket">Creating a Socket</h2>
+
+<p>To create a socket, we need to use <a href="https://man7.org/linux/man-pages/man2/socket.2.html"><code class="language-plaintext highlighter-rouge">socket</code></a> system call. Here is the prototype of <code class="language-plaintext highlighter-rouge">socket</code>:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">socket</span><span class="p">(</span><span class="kt">int</span> <span class="n">domain</span><span class="p">,</span> <span class="kt">int</span> <span class="n">type</span><span class="p">,</span> <span class="kt">int</span> <span class="n">protocol</span><span class="p">);</span>
+</code></pre></div></div>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">domain</code> argument specifies a communication domain. Since we want to use IPv4 internet protocols, we want to use <code class="language-plaintext highlighter-rouge">AF_INET</code> - which expands to <code class="language-plaintext highlighter-rouge">2</code> - for this. <code class="language-plaintext highlighter-rouge">AF_INET</code> is defined in <code class="language-plaintext highlighter-rouge">sys/socket.h</code>.</li>
+</ul>
+
+<blockquote>
+  <p><em>Hint: You can print the value of things by writing a C program or use an IDE or a text editor with extension to jump to the definition of something. For example I am using neovim with coc.</em></p>
+</blockquote>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">type</code> will be <code class="language-plaintext highlighter-rouge">SOCK_STREAM</code> - which expands to <code class="language-plaintext highlighter-rouge">1</code> - for a TCP connection.</li>
+  <li><code class="language-plaintext highlighter-rouge">protocol</code> will be <code class="language-plaintext highlighter-rouge">0</code> since we use a single protocol.</li>
+</ul>
+
+<p>In <code class="language-plaintext highlighter-rouge">socket.s</code>:</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%include "defines.s"
+
+%define AF_INET 2
+%define SOCK_STREAM 1
+</span>
+<span class="c1">; Export the `socket_listen` function</span>
+<span class="nf">global</span> <span class="nv">socket_listen</span>
+
+<span class="nf">section</span> <span class="nv">.text</span>
+
+<span class="nl">socket_listen:</span>
+    <span class="c1">; socket(rdi: AF_INET, rsi: SOCK_STREAM, rdx: 0)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">SOCKET</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nv">AF_INET</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nv">SOCK_STREAM</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="nf">syscall</span>
+</code></pre></div></div>
+
+<p>Now we can find the created socket descriptor on <code class="language-plaintext highlighter-rouge">rax</code> register.</p>
+
+<h2 id="binding-a-socket">Binding a Socket</h2>
+
+<p>To assign an address and a port to a socket, we need to make a <a href="https://man7.org/linux/man-pages/man2/bind.2.html"><code class="language-plaintext highlighter-rouge">bind</code></a> syscall. Here is the prototype of <code class="language-plaintext highlighter-rouge">bind</code>:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">sockfd</code> is the socket’s file descriptor which returned from the <code class="language-plaintext highlighter-rouge">socket</code> syscall.</li>
+  <li><code class="language-plaintext highlighter-rouge">addr</code> is a pointer to the address information.</li>
+  <li><code class="language-plaintext highlighter-rouge">addrlen</code> is the length of address information.</li>
+</ul>
+
+<p>Until this point, we only deal with values and not pointers. But this time the <code class="language-plaintext highlighter-rouge">addr</code> parameter points to a location that stores the actual data. So we need to reserve some space for the data. If we would use C, we would probably define <code class="language-plaintext highlighter-rouge">addr</code> as a local variable like this:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">sockaddr_in</span> <span class="n">addr</span><span class="p">;</span>
+<span class="c1">// ...</span>
+<span class="n">bind</span><span class="p">(..,</span> <span class="o">&amp;</span><span class="n">addr</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">addr</span><span class="p">));</span>
+</code></pre></div></div>
+
+<p>As you might know, non-static local variables are reserved on stack. But before reserving a space for <code class="language-plaintext highlighter-rouge">addr</code> on stack, we actually need to reserve a space on the stack for our function which generally called as stack frame.</p>
+
+<h2 id="properly-setting-up-the-stack-frame">Properly Setting Up the Stack Frame</h2>
+
+<p>Each function generally has its own stack frame. I am saying generally because some optimization might omit allocating the stack process. This stack frame is used to store our local variables and return addresses. Let’s say the <code class="language-plaintext highlighter-rouge">main</code> function calls <code class="language-plaintext highlighter-rouge">foo</code> function. Right after the call happens, the stack would look like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>       +------------------------+
+       | Lower Addresses        |
+       +------------------------+
+rsp -&gt; | return address of main |
+       | some local variable    |
+rbp -&gt; |                        |
+       +------------------------+
+       | Higher Addresses       |
+       +------------------------+
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">call</code> instruction pushes the return address of <code class="language-plaintext highlighter-rouge">main</code> to the stack. Because think about it, how would the CPU know, which instruction to return to otherwise? The part of the stack that is between <code class="language-plaintext highlighter-rouge">rsp</code> and <code class="language-plaintext highlighter-rouge">rbp</code> is called a stack frame. Right after the call, the stack frame is the <code class="language-plaintext highlighter-rouge">main</code> function’s stack frame. To reserve a stack frame for <code class="language-plaintext highlighter-rouge">foo</code>, we do this:</p>
+
+<ol>
+  <li>Save <code class="language-plaintext highlighter-rouge">rbp</code>. Because we need to restore it before we return from <code class="language-plaintext highlighter-rouge">foo</code>. Otherwise we would lose <code class="language-plaintext highlighter-rouge">main</code> function’s base of the stack.</li>
+  <li>Move <code class="language-plaintext highlighter-rouge">rbp</code> to <code class="language-plaintext highlighter-rouge">rsp</code>. This would move the base of the stack frame of <code class="language-plaintext highlighter-rouge">foo</code> on top of the stack frame of <code class="language-plaintext highlighter-rouge">main</code>.</li>
+  <li>Reserve the necessary space by decrementing <code class="language-plaintext highlighter-rouge">rsp</code>.</li>
+</ol>
+
+<p>After doing the above steps, our stack will look like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>       +------------------------+
+       | Lower Addresses        |
+       +------------------------+
+rsp -&gt; | reserved               |
+       | reserved               |
+rbp -&gt; | saved rbp              |
+       | return address of main |
+       | some local variable    |
+       +------------------------+
+       | Higher Addresses       |
+       +------------------------+
+</code></pre></div></div>
+
+<p>And to return from the function, we will restore the caller’s stack frame not to mess things up.</p>
+
+<ol>
+  <li>Move <code class="language-plaintext highlighter-rouge">rsp</code> to <code class="language-plaintext highlighter-rouge">rbp</code>. This will make us discard all the reserved space.</li>
+  <li>Pop <code class="language-plaintext highlighter-rouge">rbp</code>. By doing this, we will restore the <code class="language-plaintext highlighter-rouge">saved rbp</code> and, since <code class="language-plaintext highlighter-rouge">pop</code> increments <code class="language-plaintext highlighter-rouge">rsp</code> we will also restore the <code class="language-plaintext highlighter-rouge">rsp</code>.</li>
+  <li>Execute <code class="language-plaintext highlighter-rouge">ret</code>. This will pop the return address to <code class="language-plaintext highlighter-rouge">rip</code> so that the program will continue to execute the caller function.</li>
+</ol>
+
+<h2 id="reserving-addr-on-stack">Reserving <code class="language-plaintext highlighter-rouge">addr</code> On Stack</h2>
+
+<p>Let’s properly set up the stack and reserve enough space for <code class="language-plaintext highlighter-rouge">addr</code>.</p>
+
+<p><code class="language-plaintext highlighter-rouge">struct sockaddr</code> is a generic data structure and for IP-based communication we need to use <code class="language-plaintext highlighter-rouge">struct sockaddr_in</code>. If we use C, we would use <code class="language-plaintext highlighter-rouge">struct sockaddr_in</code> and case it to <code class="language-plaintext highlighter-rouge">struct sockaddr *</code> when we call the <code class="language-plaintext highlighter-rouge">bind</code> function. On Linux, the definition of <code class="language-plaintext highlighter-rouge">struct sockaddr_in</code> is like this:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">sockaddr_in</span> <span class="p">{</span>
+    <span class="kt">short</span>          <span class="n">sin_family</span><span class="p">;</span>
+    <span class="kt">unsigned</span> <span class="kt">short</span> <span class="n">sin_port</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">in_addr</span> <span class="n">sin_addr</span><span class="p">;</span>
+    <span class="kt">char</span>           <span class="n">sin_zero</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>If you go to the definition by yourself, you will see some fancy stuff. This is a simplified version.</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">sin_family</code> will be <code class="language-plaintext highlighter-rouge">AF_INET</code> like we did before.</li>
+  <li><code class="language-plaintext highlighter-rouge">sin_port</code> will be the port number in network byte-order.</li>
+  <li><code class="language-plaintext highlighter-rouge">in_addr</code> is basically an <code class="language-plaintext highlighter-rouge">unsigned long</code> and it will be <a href="https://man7.org/linux/man-pages/man7/ip.7.html"><code class="language-plaintext highlighter-rouge">INADDR_ANY</code></a>.</li>
+  <li><code class="language-plaintext highlighter-rouge">sin_zero</code> will be bunch of zeros.</li>
+</ul>
+
+<p>In C, you can assign a variable with the equal sign and do not care about the size. But in assembly we need to put the variables in the correct place, in the correct order, in the correct size.</p>
+
+<p>Since the size of the <code class="language-plaintext highlighter-rouge">struct sockaddr</code> is 16 bytes, let’s start improving out function by reserving 16 bytes.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">socket_listen:</span>
+    <span class="c1">; Set up the stack frame</span>
+    <span class="nf">push</span> <span class="nb">rbp</span>
+    <span class="nf">mov</span> <span class="nb">rbp</span><span class="p">,</span> <span class="nb">rsp</span>
+    <span class="c1">; Reserve 16 bytes on stack</span>
+    <span class="nf">sub</span> <span class="nb">rsp</span><span class="p">,</span> <span class="mh">0x10</span> 
+</code></pre></div></div>
+
+<p>After that, let’s correctly fill the reserved space for address.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">socket_listen:</span>
+    <span class="nf">...</span>
+	<span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="nv">AF_INET</span>
+    <span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x2</span><span class="p">],</span> <span class="mi">23569</span>      <span class="c1">; port 4444 in network byte-order.</span>
+    <span class="nf">mov</span> <span class="kt">dword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x4</span><span class="p">],</span> <span class="nv">INADDR_ANY</span>
+    <span class="nf">mov</span> <span class="kt">qword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x8</span><span class="p">],</span> <span class="mi">0</span>          <span class="c1">; zero out `sin_zero`</span>
+</code></pre></div></div>
+
+<p>There is a thing that we need to do. On OS X, the definition of <code class="language-plaintext highlighter-rouge">struct sockaddr_in</code> is like this:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">sockaddr_in</span> <span class="p">{</span>
+    <span class="n">__uint8_t</span>      <span class="n">sin_len</span><span class="p">;</span>
+    <span class="n">__uint8_t</span>      <span class="n">sin_family</span><span class="p">;</span>
+    <span class="n">__uint16_t</span>     <span class="n">sin_port</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">in_addr</span> <span class="n">sin_addr</span><span class="p">;</span>
+    <span class="kt">char</span>           <span class="n">sin_zero</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>As you can see, now the size of <code class="language-plaintext highlighter-rouge">sin_family</code> is 1 byte and a new field called <code class="language-plaintext highlighter-rouge">sin_len</code> which is the size of <code class="language-plaintext highlighter-rouge">addr</code> is added. So we need to use conditional assembly in here.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%ifdef PLATFORM_LINUX
+</span>	<span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="nv">AF_INET</span>    <span class="c1">; 2 bytes family</span>
+<span class="cp">%elifdef PLATFORM_OSX
+</span>    <span class="nf">mov</span> <span class="kt">byte</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="mh">0x10</span>       <span class="c1">; size of the `addr`</span>
+	<span class="nf">mov</span> <span class="kt">byte</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x1</span><span class="p">],</span> <span class="nv">AF_INET</span>    <span class="c1">; 1 byte family</span>
+<span class="cp">%endif
+</span>    <span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x2</span><span class="p">],</span> <span class="mi">23569</span>      <span class="c1">; port 4444 in network byte-order.</span>
+    <span class="nf">mov</span> <span class="kt">dword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x4</span><span class="p">],</span> <span class="nv">INADDR_ANY</span>
+    <span class="nf">mov</span> <span class="kt">qword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x8</span><span class="p">],</span> <span class="mi">0</span>          <span class="c1">; zero out `sin_zero`</span>
+</code></pre></div></div>
+
+<p>Now we can call <code class="language-plaintext highlighter-rouge">bind</code>.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%include "defines.s"
+
+%define AF_INET 2
+%define SOCK_STREAM 1
+%define INADDR_ANY 0
+</span>
+<span class="nf">global</span> <span class="nv">socket_listen</span>
+
+<span class="nf">section</span> <span class="nv">.text</span>
+
+<span class="nl">socket_listen:</span>
+    <span class="nf">push</span> <span class="nb">rbp</span>
+    <span class="nf">mov</span> <span class="nb">rbp</span><span class="p">,</span> <span class="nb">rsp</span>
+    <span class="nf">sub</span> <span class="nb">rsp</span><span class="p">,</span> <span class="mh">0x10</span>
+
+    <span class="c1">; socket(rdi: AF_INET, rsi: SOCK_STREAM, rdx: 0)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">SOCKET</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nv">AF_INET</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nv">SOCK_STREAM</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="nf">syscall</span>
+
+<span class="cp">%ifdef PLATFORM_LINUX
+</span>	<span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="nv">AF_INET</span>    <span class="c1">; 2 bytes family</span>
+<span class="cp">%elifdef PLATFORM_OSX
+</span>    <span class="nf">mov</span> <span class="kt">byte</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="mh">0x10</span>       <span class="c1">; size of the `addr`</span>
+	<span class="nf">mov</span> <span class="kt">byte</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x1</span><span class="p">],</span> <span class="nv">AF_INET</span>    <span class="c1">; 1 byte family</span>
+<span class="cp">%endif
+</span>    <span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x2</span><span class="p">],</span> <span class="mi">23569</span>      <span class="c1">; port 4444 in network byte-order.</span>
+    <span class="nf">mov</span> <span class="kt">dword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x4</span><span class="p">],</span> <span class="nv">INADDR_ANY</span>
+    <span class="nf">mov</span> <span class="kt">qword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x8</span><span class="p">],</span> <span class="mi">0</span>          <span class="c1">; zero out `sin_zero`</span>
+
+    <span class="c1">; bind(rdi: socket, rsi: addr, rdx: sizeof(addr))</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nb">rax</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">BIND</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nb">rsp</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mh">0x10</span>
+    <span class="nf">syscall</span>
+</code></pre></div></div>
+
+<p>You might not see it at first but we have a problem in here. <code class="language-plaintext highlighter-rouge">socket</code> returns the created socket descriptor in <code class="language-plaintext highlighter-rouge">rax</code> and <code class="language-plaintext highlighter-rouge">bind</code> returns the status code in <code class="language-plaintext highlighter-rouge">rax</code> as well. So after we call <code class="language-plaintext highlighter-rouge">bind</code>, we lost the returned socket descriptor. So let’s save it to <code class="language-plaintext highlighter-rouge">rbx</code> before we call <code class="language-plaintext highlighter-rouge">socket</code>. We are saving it to <code class="language-plaintext highlighter-rouge">rbx</code> because we know that it will be preserved as it said in the calling convention.</p>
+
+<p>We are expecting <code class="language-plaintext highlighter-rouge">rbx</code> to remain unchanged, but also function that calls <code class="language-plaintext highlighter-rouge">socket_listen</code> expects <code class="language-plaintext highlighter-rouge">rbx</code> to remain unchanged. So we need to save it before we change it so that we can restore it later.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">%include "defines.s"
+
+%define AF_INET 2
+%define SOCK_STREAM 1
+%define INADDR_ANY 0
+</span>
+<span class="nf">global</span> <span class="nv">socket_listen</span>
+
+<span class="nf">section</span> <span class="nv">.text</span>
+
+<span class="nl">socket_listen:</span>
+    <span class="nf">push</span> <span class="nb">rbp</span>
+    <span class="nf">mov</span> <span class="nb">rbp</span><span class="p">,</span> <span class="nb">rsp</span>
+    <span class="nf">push</span> <span class="nb">rbx</span>       <span class="c1">; --&gt; NEW: save `rbx`</span>
+    <span class="nf">sub</span> <span class="nb">rsp</span><span class="p">,</span> <span class="mh">0x10</span>
+
+    <span class="c1">; socket(rdi: AF_INET, rsi: SOCK_STREAM, rdx: 0)</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">SOCKET</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nv">AF_INET</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nv">SOCK_STREAM</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="nf">syscall</span>
+
+    <span class="nf">mov</span> <span class="nb">rbx</span><span class="p">,</span> <span class="nb">rax</span>  <span class="c1">; --&gt; NEW</span>
+
+<span class="cp">%ifdef PLATFORM_LINUX
+</span>	<span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="nv">AF_INET</span>    <span class="c1">; 2 bytes family</span>
+<span class="cp">%elifdef PLATFORM_OSX
+</span>    <span class="nf">mov</span> <span class="kt">byte</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x0</span><span class="p">],</span> <span class="mh">0x10</span>       <span class="c1">; size of the `addr`</span>
+	<span class="nf">mov</span> <span class="kt">byte</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x1</span><span class="p">],</span> <span class="nv">AF_INET</span>    <span class="c1">; 1 byte family</span>
+<span class="cp">%endif
+</span>    <span class="nf">mov</span> <span class="kt">word</span> <span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x2</span><span class="p">],</span> <span class="mi">23569</span>      <span class="c1">; port 4444 in network byte-order.</span>
+    <span class="nf">mov</span> <span class="kt">dword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x4</span><span class="p">],</span> <span class="nv">INADDR_ANY</span>
+    <span class="nf">mov</span> <span class="kt">qword</span><span class="p">[</span><span class="nb">rsp</span><span class="o">+</span><span class="mh">0x8</span><span class="p">],</span> <span class="mi">0</span>          <span class="c1">; zero out `sin_zero`</span>
+
+    <span class="c1">; bind(rdi: socket, rsi: addr, rdx: sizeof(addr))</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">BIND</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nb">rbx</span>  <span class="c1">;  --&gt; NEW</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="nb">rsp</span>
+    <span class="nf">mov</span> <span class="nb">rdx</span><span class="p">,</span> <span class="mh">0x10</span>
+    <span class="nf">syscall</span>
+</code></pre></div></div>
+
+<h2 id="listening-on-a-socket">Listening on a Socket</h2>
+
+<p>Now we need to <a href="https://man7.org/linux/man-pages/man2/listen.2.html"><code class="language-plaintext highlighter-rouge">listen</code></a> for connection on the socket. Prototype of <code class="language-plaintext highlighter-rouge">listen</code> is:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">listen</span><span class="p">(</span><span class="kt">int</span> <span class="n">sockfd</span><span class="p">,</span> <span class="kt">int</span> <span class="n">backlog</span><span class="p">);</span>
+</code></pre></div></div>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">sockfd</code> is the socket descriptor that is returned from <code class="language-plaintext highlighter-rouge">socket</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">backlog</code> argument defines the maximum length to which queue of pending connections for <code class="language-plaintext highlighter-rouge">sockfd</code> may grow. We assign this to <code class="language-plaintext highlighter-rouge">5</code> just in case.</li>
+</ul>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">socket_listen:</span>
+    <span class="nf">...</span>
+    <span class="c1">; listen(rdi: socket, rsi: backlog(5))</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nv">SYSCALL</span><span class="p">(</span><span class="nv">LISTEN</span><span class="p">)</span>
+    <span class="nf">mov</span> <span class="nb">rdi</span><span class="p">,</span> <span class="nb">rbx</span>
+    <span class="nf">mov</span> <span class="nb">rsi</span><span class="p">,</span> <span class="mi">5</span>
+    <span class="nf">syscall</span>
+</code></pre></div></div>
+
+<p>And we can finally restore the stack and <code class="language-plaintext highlighter-rouge">rbx</code> and return.</p>
+
+<div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">socket_listen:</span>
+    <span class="nf">...</span>
+    <span class="c1">; Set the return value to the socket descriptor</span>
+    <span class="nf">mov</span> <span class="nb">rax</span><span class="p">,</span> <span class="nb">rbx</span>
+    <span class="c1">; Restore rbx</span>
+    <span class="nf">mov</span> <span class="nb">rbx</span><span class="p">,</span> <span class="kt">QWORD</span> <span class="p">[</span><span class="nb">rsp</span> <span class="o">+</span> <span class="mh">0x10</span><span class="p">]</span>
+    <span class="c1">; Properly return from the function</span>
+    <span class="nf">mov</span> <span class="nb">rsp</span><span class="p">,</span> <span class="nb">rbp</span>
+    <span class="nf">pop</span> <span class="nb">rbp</span>
+    <span class="nf">ret</span>
+</code></pre></div></div>
+
+<h2 id="catching-failures">Catching Failures</h2>
