@@ -5,6 +5,8 @@ parent: OS Dev Journey
 nav_order: 4
 ---
 
+<small> May 10, 2021 </small>
+
 # Building a Simple Kernel for IA-32
 
 ## How to get the most out of this post?

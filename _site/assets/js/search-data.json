@@ -99,7 +99,7 @@
   },"14": {
     "doc": "Building a Simple Kernel",
     "title": "Building a Simple Kernel",
-    "content": " ",
+    "content": "May 10, 2021 . ",
     "url": "/docs/os-dev-journey/simple-kernel.html",
     
     "relUrl": "/docs/os-dev-journey/simple-kernel.html"
@@ -121,9 +121,9 @@
     "doc": "x86_64 Tcp Server",
     "title": "x86_64 Tcp Server",
     "content": " ",
-    "url": "/docs/small-projects/x86_64-tcp-server.html",
+    "url": "/docs/small-projects/x86_64-tcp-server.html#x86_64-tcp-server",
     
-    "relUrl": "/docs/small-projects/x86_64-tcp-server.html"
+    "relUrl": "/docs/small-projects/x86_64-tcp-server.html#x86_64-tcp-server"
   },"18": {
     "doc": "x86_64 Tcp Server",
     "title": "Introduction",
@@ -215,5 +215,12 @@
     "url": "/docs/small-projects/x86_64-tcp-server.html#writing-some-helper-functions",
     
     "relUrl": "/docs/small-projects/x86_64-tcp-server.html#writing-some-helper-functions"
+  },"31": {
+    "doc": "x86_64 Tcp Server",
+    "title": "x86_64 Tcp Server",
+    "content": "May 23, 2021 . ",
+    "url": "/docs/small-projects/x86_64-tcp-server.html",
+    
+    "relUrl": "/docs/small-projects/x86_64-tcp-server.html"
   }
 }
