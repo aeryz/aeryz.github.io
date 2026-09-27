@@ -1,0 +1,42 @@
+---
+---
+
+@use 'abstracts/variables' with (
+  $theme: '{{ site.theme_mode }}'
+);
+
+/* prettier-ignore */
+@use 'main
+{%- if jekyll.environment == 'production' -%}
+  .bundle
+{%- endif -%}
+';
+
+/* append your custom style below */
+
+/* Post list nested inside a second-level category (see _layouts/categories.html) */
+.categories .category-posts {
+  margin-top: 0.75rem;
+  margin-bottom: -0.25rem;
+  border-top: 1px solid var(--categories-border);
+
+  .list-group-item {
+    padding-left: 1.25rem;
+    background: none;
+    border-left: none;
+    border-right: none;
+
+    &:first-child {
+      border-top: none;
+    }
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+  }
+
+  time {
+    margin-left: 0.25rem;
+    white-space: nowrap;
+  }
+}
