@@ -40,3 +40,88 @@
     white-space: nowrap;
   }
 }
+
+/*
+ * Collapsible note in a post: `<details markdown="1">`, optionally with a
+ * `prompt-*` class to pick one of the theme's four palettes. Styled to match
+ * Chirpy's prompt blockquotes so it does not read as a raw browser widget.
+ */
+.content details {
+  background-color: var(--prompt-info-bg);
+  color: var(--prompt-text-color);
+  border-radius: variables.$radius-lg;
+  margin-bottom: 1.25rem;
+
+  > summary {
+    position: relative;
+    padding: 0.75rem 1rem 0.75rem 2.75rem;
+    font-weight: 600;
+    cursor: pointer;
+
+    /* Replace the native disclosure triangle with a Font Awesome chevron. */
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &::before {
+      content: '\f054'; /* fa-chevron-right */
+      font: var(--fa-font-solid);
+      font-size: 0.8em;
+      position: absolute;
+      left: 0.95rem;
+      top: 0.75rem; /* matches the summary's padding-top */
+
+      /*
+       * The box must be square, or rotate(90deg) about its centre shifts the
+       * glyph by half the width/height difference.
+       */
+      display: inline-block;
+      width: 1.5em;
+      height: 1.5em;
+      line-height: 1.5em;
+      text-align: center;
+
+      color: var(--prompt-info-icon-color);
+      transition: transform 200ms ease;
+    }
+
+    &:hover::before {
+      opacity: 0.75;
+    }
+  }
+
+  &[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  /*
+   * Body gap. The bottom padding belongs on the container, not on the last
+   * child: padding on a child lands *inside* its own background, so a trailing
+   * code block would simply grow taller instead of gaining a gap beneath it.
+   * Only when open, otherwise a collapsed note carries dead space.
+   */
+  &[open] {
+    padding-bottom: 1rem;
+  }
+
+  > :not(summary) {
+    margin-left: 1rem;
+    margin-right: 1rem;
+  }
+
+  > :last-child:not(summary) {
+    margin-bottom: 0;
+  }
+
+  @each $type in (tip, warning, danger) {
+    &.prompt-#{$type} {
+      background-color: var(--prompt-#{$type}-bg);
+
+      > summary::before {
+        color: var(--prompt-#{$type}-icon-color);
+      }
+    }
+  }
+}
