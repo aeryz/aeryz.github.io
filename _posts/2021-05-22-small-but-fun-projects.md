@@ -1,7 +1,7 @@
 ---
 title: Small (but fun) Projects
 date: 2021-05-22 21:00:00 +0300
-categories: [Small Projects, Overview]
+categories: [Small Projects]
 tags: [projects]
 redirect_from:
   - /blog/small-projects

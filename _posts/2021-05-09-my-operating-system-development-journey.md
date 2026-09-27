@@ -1,7 +1,7 @@
 ---
 title: My Operating System Development Journey
 date: 2021-05-09 19:38:17 +0300
-categories: [OS Dev Journey, Overview]
+categories: [OS Dev, OS Dev Journey (from 2021)]
 tags: [os, kernel, resources]
 redirect_from:
   - /blog/os-dev-journey

@@ -26,6 +26,11 @@ package-lock.json
 _sass/vendors
 assets/js/dist
 
+# Nix
+result
+result-*
+.direnv
+
 # Hidden system files
 *~
 .DS_Store

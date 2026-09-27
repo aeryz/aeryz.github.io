@@ -1,7 +1,7 @@
 ---
 title: Building a Simple Kernel for IA-32
 date: 2021-05-10 12:00:00 +0300
-categories: [OS Dev Journey, Kernel]
+categories: [OS Dev, OS Dev Journey (from 2021)]
 tags: [os, kernel, assembly, c, x86, multiboot]
 redirect_from:
   - /docs/os-dev-journey/simple-kernel.html
