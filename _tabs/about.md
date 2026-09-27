@@ -4,9 +4,10 @@ icon: fas fa-info-circle
 order: 4
 ---
 
-Hi, it's Abdullah. I am software engineer from Turkey 🇹🇷. I am interested in Rust
-programming, operating systems, virtualization and distributed systems. In general, I am
-interested in how things work internally, and how to make them even better. Doing
-optimization, dealing with complex systems and problems, working close to hardware and
-sharing my knowledge are the things that I like. I want to share my learning experience as
-well as some informative material in this blog. Please feel free to contact :).
+Hi, it's Abdullah (aka [KernelNomad](https://x.com/KernelNomad_)). I'm a software engineer form
+Türkiye with a deep interest in Operating Systems, Virtualization and Rust. I work at
+[zymtrace](https://zymtrace.com/) on an eBPF-based continuous CPU and GPU profiler. 
+
+Lately, I've been working on my [RISC-V kernel in Rust](https://github.com/aeryz/efiks-os) and
+you'll hopefully find a good amount of posts me explaining general OS concepts while also showing
+how it's done in illumos or Linux and them implement it in my OS.
