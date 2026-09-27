@@ -4,7 +4,7 @@ date: 2021-05-10 12:00:00 +0300
 categories: [OS Dev, OS Dev Journey (from 2021)]
 tags: [os, kernel, assembly, c, x86, multiboot]
 redirect_from:
-  - /docs/os-dev-journey/simple-kernel.html
+  - /docs/os-dev/simple-kernel.html
 ---
 
 ## How to get the most out of this post?
