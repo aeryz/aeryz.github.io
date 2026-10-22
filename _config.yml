@@ -223,6 +223,7 @@ exclude:
   - tools
   - README.md
   - LICENSE
+  - feedback.md
   - purgecss.js
   - "*.config.js"
   - "package*.json"
